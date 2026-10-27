@@ -1,0 +1,31 @@
+sources:
+- name: Product
+  format: csv
+  source_path: ../test_data/source/product.csv
+targets:
+- target_path: ../test_data/output
+  mapping:
+  - source_col_length: '10'
+    source_col_name: id
+    target_col_name: id
+    target_col_type: integer
+  - source_col_length: '0'
+    source_col_name: 
+    target_col_name: guid
+    target_col_type: string
+    transforms:
+    - name: generate_guid
+      type: custom_transform
+  - source_col_length: '100'
+    source_col_name: product_name
+    target_col_name: product_name
+    target_col_type: string
+  - source_col_length: '20'
+    source_col_name: createdOn
+    target_col_name: timestamp
+    target_col_type: string
+  - source_col_length: '0'
+    source_col_name: null
+    target_col_name: default_col
+    target_col_type: string
+    default_value: 'Default Value'
