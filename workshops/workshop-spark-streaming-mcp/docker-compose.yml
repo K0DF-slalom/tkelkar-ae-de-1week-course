@@ -1,0 +1,116 @@
+# Docker Compose for Spark Structured Streaming Learning Project
+# Optimized for Apple Silicon (M4 Mac) with Colima
+
+services:
+  # PostgreSQL Database - stores processed streaming data
+  postgres:
+    image: postgres:16-alpine
+    container_name: spark-postgres
+    environment:
+      POSTGRES_USER: sparkuser
+      POSTGRES_PASSWORD: sparkpass
+      POSTGRES_DB: sparkdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sparkuser -d sparkdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - spark-network
+
+  # Spark Master Node
+  # The master coordinates the cluster and distributes work to workers
+  spark-master:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+      # Memory settings optimized for learning/development
+      - SPARK_DAEMON_MEMORY=1g
+    ports:
+      - "8080:8080"   # Spark Master Web UI
+      - "7077:7077"   # Spark Master port
+      - "4040:4040"   # Spark Application UI (when job is running)
+      - "9999:9999"   # Socket for streaming data
+    volumes:
+      - ./src:/app/src:ro
+      - ./data:/app/data
+      - ./scripts:/app/scripts:ro
+      - spark_logs:/opt/spark/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - spark-network
+    entrypoint: ["bash", "-lc", "/opt/spark/sbin/start-master.sh && tail -f /opt/spark/logs/spark--org.apache.spark.deploy.master.Master-*.out"]
+
+  # Spark Worker Node
+  # Workers execute the actual data processing tasks
+  spark-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: spark-worker
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2g
+      - SPARK_DAEMON_MEMORY=512m
+    ports:
+      - "8081:8081"   # Spark Worker Web UI
+    volumes:
+      - ./src:/app/src:ro
+      - ./data:/app/data
+      - spark_logs:/opt/spark/logs
+    depends_on:
+      - spark-master
+    networks:
+      - spark-network
+    entrypoint: ["bash", "-lc", "sleep 10 && /opt/spark/sbin/start-worker.sh spark://spark-master:7077 && tail -f /opt/spark/logs/spark--org.apache.spark.deploy.worker.Worker-*.out"]
+
+  # MCP Server for Postgres insights
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: mcp-server
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: sparkdb
+      POSTGRES_USER: sparkuser
+      POSTGRES_PASSWORD: sparkpass
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 3333
+    ports:
+      - "3333:3333"
+    volumes:
+      - ./src:/app/src:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - spark-network
+
+# Named volumes for data persistence
+volumes:
+  postgres_data:
+    driver: local
+  spark_logs:
+    driver: local
+
+# Custom network for inter-container communication
+networks:
+  spark-network:
+    driver: bridge

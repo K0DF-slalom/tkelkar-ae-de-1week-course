@@ -1,0 +1,8 @@
+mcp
+psycopg2-binary
+uvicorn
+starlette
+faker
+pyarrow
+requests
+numpy
